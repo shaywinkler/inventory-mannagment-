@@ -33,28 +33,34 @@ from tabulate import tabulate
 
 
 DEFAULT_COLUMNS = [
+    "name",
     "qr code",
-    "צילומי מדך עם ירוק",
-    "צילומי מדף ללא ירוק",
-    "צילומים דרך 10 מצלמות",
-    "האם המוצר ירוק?",
-    "מס המוצר בצילום",
-    "label המוצר",
+    "photos with green",
+    "photos without green",
+    "photos through 10 camaras",
+    "is it green?",
+    "label of picture",
+    "old label",
 ]
 
 # Columns that must contain only Yes/No (case-insensitive). Update as needed.
 BOOLEAN_COLUMNS = [
-    "צילומי מדך עם ירוק",
-    "צילומי מדף ללא ירוק",
-    "צילומי מדף עם ירוק",
-    "צילומים דרך 10 מצלמות",
-    "האם המוצר ירוק?",
+    "photos with green",
+    "photos without green",
+    "photos through 10 camaras",
+    "is it green?",
 ]
 
 
 def load_data(path: pathlib.Path | None, url: str | None) -> pd.DataFrame:
     """Load data from an Excel file (if *path* given) or from a Google-Sheets CSV export *url*."""
     if url:
+        # Convert a regular Google Sheets URL (ending in /edit) to a direct CSV export URL if necessary
+        if "docs.google.com" in url and "format=csv" not in url:
+            m = re.search(r"/d/([\w-]+)/", url)
+            if m:
+                sheet_id = m.group(1)
+                url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
         try:
             df = pd.read_csv(url)
         except Exception as exc:  # noqa: BLE001
@@ -120,7 +126,7 @@ def validate_booleans(df: pd.DataFrame) -> None:
     for col in BOOLEAN_COLUMNS:
         if col not in df.columns:
             continue  # skip missing columns silently
-        allowed = {"yes", "no", "כן", "לא"}
+        allowed = {"yes", "no",}
         bad_mask = ~df[col].astype(str).str.strip().str.lower().isin(allowed | {"nan", ""})
         if bad_mask.any():
             print("\n[Warning] Column '%s' has non-Yes/No values:" % col)

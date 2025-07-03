@@ -1,3 +1,4 @@
 pandas>=2.0
 openpyxl>=3.1
 tabulate>=0.9
+dash>=2.16
