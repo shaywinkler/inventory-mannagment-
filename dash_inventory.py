@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import pathlib
 import re
+import os
+import sys
 
 import pandas as pd
 from dash import Dash, Input, Output, State, ctx, dash_table, dcc, html
@@ -205,4 +207,13 @@ def upload_row(n_clicks: int, url: str, name: str, qr: str, picture: str, shelfp
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    # Allow overriding port via --port=<num> or PORT env var
+    port = 8050
+    for arg in sys.argv[1:]:
+        if arg.startswith("--port="):
+            try:
+                port = int(arg.split("=", 1)[1])
+            except ValueError:
+                pass
+    port = int(os.getenv("PORT", port))
+    app.run(debug=True, port=port)
