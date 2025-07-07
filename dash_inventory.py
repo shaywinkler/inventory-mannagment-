@@ -120,13 +120,12 @@ def load_sheet(n_clicks: int, url: str):  # noqa: D401  pylint: disable=unused-a
 @app.callback(
     Output("result-table", "data"),
     Output("result-table", "columns"),
-    Input("search-btn", "n_clicks"),
-    State("query-input", "value"),
-    State("field-dropdown", "value"),
+    Input("query-input", "value"),  # triggers on every keystroke (auto-search)
+    Input("field-dropdown", "value"),
     State("data-store", "data"),
     prevent_initial_call=True,
 )
-def do_search(n_clicks: int, query: str, field: str | None, data: str):  # noqa: D401  pylint: disable=unused-argument
+def do_search(query: str, field: str | None, data: str):  # noqa: D401
     if not query:
         return [], []
     df = json_to_df(data)
