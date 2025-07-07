@@ -55,6 +55,19 @@ app.layout = html.Div(
         ),
         dcc.Store(id="data-store"),
         html.Div(id="warning-div", style={"color": "red", "whiteSpace": "pre-wrap"}),
+        html.Hr(),
+        html.H4("Add New Item"),
+        html.Div([
+            dcc.Input(id="name-input", placeholder="name", type="text", style={"width": "220px"}),
+            dcc.Input(id="qr-input", placeholder="qr code", type="text", style={"width": "200px"}),
+            dcc.Dropdown(id="picture-input", options=[{"label": "Yes", "value": "yes"}, {"label": "No", "value": "no"}], placeholder="picture?", style={"width": "160px"}),
+            dcc.Dropdown(id="shelfpic-input", options=[{"label": "Yes", "value": "yes"}, {"label": "No", "value": "no"}], placeholder="picture by shelf?", style={"width": "180px"}),
+            dcc.Dropdown(id="green-input", options=[{"label": "Yes", "value": "yes"}, {"label": "No", "value": "no"}], placeholder="is it green?", style={"width": "160px"}),
+            dcc.Input(id="notes-input", placeholder="notes", type="text", style={"width": "250px"}),
+            dcc.Dropdown(id="visible-input", options=[{"label": "Yes", "value": "yes"}, {"label": "No", "value": "no"}], placeholder="VISIBLE/ NOT", style={"width": "160px"}),
+            html.Button("Upload", id="upload-btn", n_clicks=0, style={"marginLeft": "1rem"}),
+        ], style={"display": "flex", "gap": "0.5rem", "flexWrap": "wrap", "marginBottom": "1rem"}),
+        html.Div(id="upload-status", style={"color": "green", "whiteSpace": "pre-wrap"}),
         dash_table.DataTable(
             id="result-table",
             page_size=20,
@@ -122,6 +135,72 @@ def do_search(n_clicks: int, query: str, field: str | None, data: str):  # noqa:
     if not cols:
         cols = list(result.columns)
     return result[cols].to_dict("records"), [{"name": c, "id": c} for c in cols]
+
+
+# ---------------- Upload callback -----------------
+try:
+    import gspread  # noqa: WPS433
+    from google.auth.exceptions import GoogleAuthError  # noqa: WPS433
+except ImportError:  # gspread not installed yet
+    gspread = None  # type: ignore
+
+
+@app.callback(
+    Output("upload-status", "children"),
+    Input("upload-btn", "n_clicks"),
+    State("url-input", "value"),
+    State("name-input", "value"),
+    State("qr-input", "value"),
+    State("picture-input", "value"),
+    State("shelfpic-input", "value"),
+    State("green-input", "value"),
+    State("notes-input", "value"),
+    State("visible-input", "value"),
+    prevent_initial_call=True,
+)
+def upload_row(n_clicks: int, url: str, name: str, qr: str, picture: str, shelfpic: str, green: str, notes: str, visible: str):  # noqa: D401
+    if gspread is None:
+        return "gspread not installed. Run pip install -r requirements.txt again."
+    if not all([name, qr]):
+        return "Name and QR code are required."
+    # Extract sheet ID
+    m = re.search(r"/d/([\w-]+)/", url)
+    if not m:
+        return "Invalid sheet URL."
+    sheet_id = m.group(1)
+    try:
+        gc = gspread.service_account()  # relies on GOOGLE_APPLICATION_CREDENTIALS env var
+        sh = gc.open_by_key(sheet_id)
+        worksheet = sh.sheet1  # first tab
+        # Normalise boolean fields to "yes"/"no" and validate
+        bool_fields = {
+            "picture": picture,
+            "picture by shelf": shelfpic,
+            "is it green?": green,
+            "VISIBLE/ NOT": visible,
+        }
+        allowed_set = {"yes", "no", ""}
+        norm_values: list[str] = []
+        for key, val in bool_fields.items():
+            v = (val or "").strip().lower()
+            if v not in allowed_set:
+                return f"Field '{key}' must be Yes or No (got '{val}')."
+            norm_values.append(v)
+        new_row = [
+            name,
+            qr,
+            norm_values[0],  # picture
+            norm_values[1],  # picture by shelf
+            norm_values[2],  # is it green?
+            notes or "",
+            norm_values[3],  # visible/not
+        ]
+        worksheet.append_row(new_row, value_input_option="USER_ENTERED")
+        return "Row uploaded successfully."
+    except GoogleAuthError as exc:
+        return f"Auth error: {exc}. Ensure GOOGLE_APPLICATION_CREDENTIALS env var points to service-account JSON and that the sheet is shared with it."
+    except Exception as exc:  # noqa: BLE001
+        return f"Upload failed: {exc}"
 
 
 if __name__ == "__main__":

@@ -35,20 +35,19 @@ from tabulate import tabulate
 DEFAULT_COLUMNS = [
     "name",
     "qr code",
-    "photos with green",
-    "photos without green",
-    "photos through 10 camaras",
+    "picture",
+    "picture by shelf",
     "is it green?",
-    "label of picture",
-    "old label",
+    "notes",
+    "VISIBLE/ NOT",
 ]
 
 # Columns that must contain only Yes/No (case-insensitive). Update as needed.
 BOOLEAN_COLUMNS = [
-    "photos with green",
-    "photos without green",
-    "photos through 10 camaras",
+    "picture",
+    "picture by shelf",
     "is it green?",
+    "VISIBLE/ NOT",
 ]
 
 
