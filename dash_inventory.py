@@ -14,7 +14,9 @@ import os
 import sys
 
 import pandas as pd
-from dash import Dash, Input, Output, State, ctx, dash_table, dcc, html
+from dash import Dash, Input, Output, State, ALL, ctx, dash_table, dcc, html
+import dash_bootstrap_components as dbc
+import dash  # for PreventUpdate
 
 # Re-use existing CLI logic
 from search_inventory import DEFAULT_COLUMNS, load_data, search, validate_booleans
@@ -24,7 +26,7 @@ DEFAULT_SHEET_URL = (
     "https://docs.google.com/spreadsheets/d/19RvAsEFg-0FiRjJmAt77IT07utYYxpzlpHrpwOTHpQ8/edit?usp=sharing"
 )
 
-app = Dash(__name__)
+app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 app.title = "Inventory Search"
 
 app.layout = html.Div(
@@ -74,9 +76,33 @@ app.layout = html.Div(
         dash_table.DataTable(
             id="result-table",
             page_size=20,
-            style_table={"overflowX": "auto"},
+            row_selectable="single",
+            selected_rows=[],
+            style_table={"overflowX": "auto", "maxHeight": "60vh", "overflowY": "auto"},
             style_cell={"textAlign": "left"},
         ),
+        html.Button("Edit Selected", id="edit-btn", n_clicks=0, disabled=True, className="btn btn-secondary mt-2"),
+        # Edit modal (hidden by default)
+        dbc.Modal([
+            dbc.ModalHeader(dbc.ModalTitle("Edit Row"), close_button=False),
+            dbc.ModalBody([
+                dbc.Row([
+                    dbc.Col(dbc.Input(id="edit-name", placeholder="name")),
+                    dbc.Col(dbc.Input(id="edit-qr", placeholder="qr code")),
+                    dbc.Col(dbc.Select(id="edit-picture", options=[{"label":"yes","value":"yes"},{"label":"no","value":"no"}])),
+                ], className="mb-2"),
+                dbc.Row([
+                    dbc.Col(dbc.Select(id="edit-shelfpic", options=[{"label":"yes","value":"yes"},{"label":"no","value":"no"}])),
+                    dbc.Col(dbc.Select(id="edit-green", options=[{"label":"yes","value":"yes"},{"label":"no","value":"no"}])),
+                    dbc.Col(dbc.Input(id="edit-notes", placeholder="notes")),
+                    dbc.Col(dbc.Select(id="edit-visible", options=[{"label":"yes","value":"yes"},{"label":"no","value":"no"}])),
+                ])
+            ]),
+            dbc.ModalFooter([
+                dbc.Button("Save", id="save-btn", n_clicks=0, className="btn btn-primary"),
+                dbc.Button("Cancel", id="cancel-btn", n_clicks=0, className="btn btn-outline-secondary")
+            ])
+        ], id="edit-modal", is_open=False),
     ],
     style={"padding": "2rem"},
 )
@@ -204,6 +230,85 @@ def upload_row(n_clicks: int, url: str, name: str, qr: str, picture: str, shelfp
     except Exception as exc:  # noqa: BLE001
         return f"Upload failed: {exc}"
 
+
+
+# ---------- Enable/disable Edit button ----------
+@app.callback(
+    Output("edit-btn", "disabled"),
+    Input("result-table", "selected_rows"),
+)
+def _toggle_edit_btn(selected_rows):
+    # Disabled when nothing selected
+    return not bool(selected_rows)
+
+# ---------- Open edit modal and populate fields ----------
+@app.callback(
+    Output("edit-modal", "is_open"),
+    Output("edit-name", "value"),
+    Output("edit-qr", "value"),
+    Output("edit-picture", "value"),
+    Output("edit-shelfpic", "value"),
+    Output("edit-green", "value"),
+    Output("edit-notes", "value"),
+    Output("edit-visible", "value"),
+    Input("edit-btn", "n_clicks"),
+    Input("cancel-btn", "n_clicks"),
+    State("result-table", "selected_rows"),
+    State("data-store", "data"),
+    prevent_initial_call=True,
+)
+def _open_modal(n_edit, n_cancel, selected_rows, data_json):
+    # Close on cancel or no selection
+    if dash.ctx.triggered_id == "cancel-btn" or not selected_rows:
+        return False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+    df = json_to_df(data_json)
+    if df is None:
+        return False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+    row = df.iloc[selected_rows[0]]
+    return True, row.get("name"), row.get("qr code"), row.get("picture"), row.get("picture by shelf"), row.get("is it green?"), row.get("notes"), row.get("VISIBLE/ NOT")
+
+# ---------- Save edits back to sheet ----------
+@app.callback(
+    Output("data-store", "data", allow_duplicate=True),
+    Output("edit-modal", "is_open", allow_duplicate=True),
+    Input("save-btn", "n_clicks"),
+    State("result-table", "selected_rows"),
+    State("url-input", "value"),
+    State("edit-name", "value"),
+    State("edit-qr", "value"),
+    State("edit-picture", "value"),
+    State("edit-shelfpic", "value"),
+    State("edit-green", "value"),
+    State("edit-notes", "value"),
+    State("edit-visible", "value"),
+    prevent_initial_call=True,
+)
+def _save_row(n_clicks, selected_rows, url, name, qr, picture, shelfpic, green, notes, visible):
+    if n_clicks == 0 or not selected_rows:
+        raise dash.exceptions.PreventUpdate
+    row_idx = selected_rows[0]
+    df = load_data(None, url)
+    # apply edits
+    df.at[row_idx, "name"] = name
+    df.at[row_idx, "qr code"] = qr
+    df.at[row_idx, "picture"] = picture
+    df.at[row_idx, "picture by shelf"] = shelfpic
+    df.at[row_idx, "is it green?"] = green
+    df.at[row_idx, "notes"] = notes
+    df.at[row_idx, "VISIBLE/ NOT"] = visible
+
+    # write single row to sheet
+    try:
+        m = re.search(r"/d/([\w-]+)/", url)
+        if m:
+            sheet_id = m.group(1)
+            gc = gspread.service_account()
+            ws = gc.open_by_key(sheet_id).sheet1
+            ws.update(f"A{row_idx + 2}", [df.iloc[row_idx].tolist()])
+    except Exception as exc:  # noqa: BLE001
+        print("[Warning] Failed to write row:", exc)
+
+    return df_to_json(df), False
 
 if __name__ == "__main__":
     # Allow overriding port via --port=<num> or PORT env var
