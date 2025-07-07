@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 
 import pandas as pd
 from dash import Dash, Input, Output, State, ctx, dash_table, dcc, html
