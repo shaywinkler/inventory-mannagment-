@@ -116,7 +116,8 @@ def df_to_json(df: pd.DataFrame) -> str:
 def json_to_df(data: str | None) -> pd.DataFrame | None:
     if not data:
         return None
-    return pd.read_json(data, orient="split")
+    from io import StringIO  # noqa: WPS433
+    return pd.read_json(StringIO(data), orient="split")
 
 
 @app.callback(
@@ -144,8 +145,8 @@ def load_sheet(n_clicks: int, url: str):  # noqa: D401  pylint: disable=unused-a
 
 
 @app.callback(
-    Output("result-table", "data"),
-    Output("result-table", "columns"),
+    Output("result-table", "data", allow_duplicate=True),
+    Output("result-table", "columns", allow_duplicate=True),
     Input("query-input", "value"),  # triggers on every keystroke (auto-search)
     Input("field-dropdown", "value"),
     State("data-store", "data"),
@@ -259,7 +260,7 @@ def _toggle_edit_btn(selected_rows):
 )
 def _open_modal(n_edit, n_cancel, selected_rows, data_json):
     # Close on cancel or no selection
-    if dash.ctx.triggered_id == "cancel-btn" or not selected_rows:
+    if ctx.triggered_id == "cancel-btn" or not selected_rows:
         return False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
     df = json_to_df(data_json)
     if df is None:
@@ -271,6 +272,9 @@ def _open_modal(n_edit, n_cancel, selected_rows, data_json):
 @app.callback(
     Output("data-store", "data", allow_duplicate=True),
     Output("edit-modal", "is_open", allow_duplicate=True),
+    Output("result-table", "data", allow_duplicate=True),
+    Output("result-table", "columns", allow_duplicate=True),
+    Output("result-table", "selected_rows", allow_duplicate=True),
     Input("save-btn", "n_clicks"),
     State("result-table", "selected_rows"),
     State("url-input", "value"),
@@ -281,14 +285,25 @@ def _open_modal(n_edit, n_cancel, selected_rows, data_json):
     State("edit-green", "value"),
     State("edit-notes", "value"),
     State("edit-visible", "value"),
+    State("query-input", "value"),
+    State("field-dropdown", "value"),
     prevent_initial_call=True,
 )
-def _save_row(n_clicks, selected_rows, url, name, qr, picture, shelfpic, green, notes, visible):
+def _save_row(n_clicks, selected_rows, url, name, qr, picture, shelfpic, green, notes, visible, query, field):
     if n_clicks == 0 or not selected_rows:
         raise dash.exceptions.PreventUpdate
-    row_idx = selected_rows[0]
-    df = load_data(None, url)
+    # Determine the actual sheet row corresponding to the selected row in the (possibly) filtered table
+    df_all = load_data(None, url)
+    if query:
+        current_view = search(df_all, query, field=field)
+    else:
+        current_view = df_all
+
+    # selected_rows index refers to the position within the current view, so map it back to df_all index
+    row_idx = current_view.index[selected_rows[0]]  # 0-based index within the Google Sheet
+    df = df_all.copy()
     # apply edits
+    # apply edits to the correct row in the full DataFrame
     df.at[row_idx, "name"] = name
     df.at[row_idx, "qr code"] = qr
     df.at[row_idx, "picture"] = picture
@@ -304,11 +319,46 @@ def _save_row(n_clicks, selected_rows, url, name, qr, picture, shelfpic, green, 
             sheet_id = m.group(1)
             gc = gspread.service_account()
             ws = gc.open_by_key(sheet_id).sheet1
-            ws.update(f"A{row_idx + 2}", [df.iloc[row_idx].tolist()])
+            row_vals = [str(v) if hasattr(v, 'dtype') or isinstance(v, (int, float)) else v for v in df.iloc[row_idx].tolist()]
+            ws.update(range_name=f"A{row_idx + 2}", values=[row_vals])
     except Exception as exc:  # noqa: BLE001
         print("[Warning] Failed to write row:", exc)
 
-    return df_to_json(df), False
+    # after write, reflect updates in df (already modified above) and prepare table data
+    if query:
+        result = search(df, query, field=field)
+    else:
+        result = df
+    cols = [c for c in DEFAULT_COLUMNS if c in result.columns]
+    if not cols:
+        cols = list(result.columns)
+    table_data = current_view.assign(**df.loc[current_view.index][cols]).to_dict("records") if query else df[cols].to_dict("records")
+    table_cols = [{"name": c, "id": c} for c in cols]
+    return df_to_json(df), False, table_data, table_cols, []
+
+# ---------- Refresh table when store changes ----------
+@app.callback(
+    Output("result-table", "data", allow_duplicate=True),
+    Output("result-table", "columns", allow_duplicate=True),
+    Input("data-store", "data"),
+    State("query-input", "value"),
+    State("field-dropdown", "value"),
+    prevent_initial_call=True,
+)
+def _refresh_table(data_json, query, field):
+    if not data_json:
+        raise dash.exceptions.PreventUpdate
+    df = json_to_df(data_json)
+    if df is None:
+        raise dash.exceptions.PreventUpdate
+    if query:
+        result = search(df, query, field=field)
+    else:
+        result = df
+    cols = [c for c in DEFAULT_COLUMNS if c in result.columns]
+    if not cols:
+        cols = list(result.columns)
+    return result[cols].to_dict("records"), [{"name": c, "id": c} for c in cols]
 
 if __name__ == "__main__":
     # Allow overriding port via --port=<num> or PORT env var
