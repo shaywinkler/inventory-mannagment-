@@ -27,7 +27,11 @@ DEFAULT_SHEET_URL = (
     "https://docs.google.com/spreadsheets/d/19RvAsEFg-0FiRjJmAt77IT07utYYxpzlpHrpwOTHpQ8/edit?usp=sharing"
 )
 
-app = Dash(__name__, external_stylesheets=[dbc.themes.LUX])
+external_stylesheets = [
+    dbc.themes.LUX,
+    "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css",  # Font Awesome icons
+]
+app = Dash(__name__, external_stylesheets=external_stylesheets)
 app.title = "Inventory Search"
 
 app.layout = html.Div(
@@ -82,7 +86,13 @@ app.layout = html.Div(
             style_table={"overflowX": "auto", "maxHeight": "60vh", "overflowY": "auto"},
             style_cell={"textAlign": "left"},
         ),
-        html.Button("Edit Selected", id="edit-btn", n_clicks=0, disabled=True, className="btn btn-secondary mt-2"),
+        html.Button(html.I(className="fa-solid fa-pen"), id="edit-btn", n_clicks=0, disabled=True, className="btn btn-secondary mt-2"),
+html.Button(html.I(className="fa-solid fa-trash"), id="delete-btn", n_clicks=0, disabled=True, className="btn btn-danger mt-2 ms-2"),
+html.Button(html.I(className="fa-solid fa-rotate-right"), id="restock-btn", n_clicks=0, disabled=True, className="btn btn-success mt-2 ms-2"),
+# Tooltips for action buttons
+dbc.Tooltip("Edit selected row", target="edit-btn", placement="top"),
+dbc.Tooltip("Delete row", target="delete-btn", placement="top"),
+dbc.Tooltip("Restock item", target="restock-btn", placement="top"),
         # Edit modal (hidden by default)
         dbc.Modal([
             dbc.ModalHeader(dbc.ModalTitle("Edit Row"), close_button=False),
@@ -238,11 +248,14 @@ def upload_row(n_clicks: int, url: str, name: str, qr: str, picture: str, shelfp
 # ---------- Enable/disable Edit button ----------
 @app.callback(
     Output("edit-btn", "disabled"),
+    Output("delete-btn", "disabled"),
+    Output("restock-btn", "disabled"),
     Input("result-table", "selected_rows"),
 )
 def _toggle_edit_btn(selected_rows):
-    # Disabled when nothing selected
-    return not bool(selected_rows)
+    # Disable action buttons when nothing is selected
+    disabled = not bool(selected_rows)
+    return disabled, disabled, disabled
 
 # ---------- Open edit modal and populate fields ----------
 @app.callback(
