@@ -1,0 +1,54 @@
+/* General layout tweaks */
+body {
+  background-color: #f8f9fa; /* light gray */
+}
+
+.app-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+/* Headings */
+h2 {
+  font-weight: 600;
+  margin-bottom: 1.5rem;
+}
+
+/* Inputs & dropdowns */
+input[type="text"], .Select-control {
+  border-radius: 0.3rem !important;
+}
+
+/* Buttons */
+button, .btn {
+  border-radius: 0.3rem !important;
+}
+
+/* DataTable */
+#result-table {
+  font-size: 0.9rem;
+}
+
+#result-table table {
+  border-collapse: collapse;
+}
+
+#result-table th {
+  background-color: #343a40;
+  color: #fff;
+  font-weight: 600;
+}
+
+#result-table tr:nth-child(even) {
+  background-color: #f2f2f2;
+}
+
+#result-table tr:hover {
+  background-color: #ffeeba;
+}
+
+/* Modal width */
+#edit-modal .modal-dialog {
+  max-width: 700px;
+}

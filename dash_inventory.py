@@ -16,6 +16,7 @@ import sys
 import pandas as pd
 from dash import Dash, Input, Output, State, ALL, ctx, dash_table, dcc, html
 import dash_bootstrap_components as dbc
+from sheets import get_df, update_row, append_row
 import dash  # for PreventUpdate
 
 # Re-use existing CLI logic
@@ -26,7 +27,7 @@ DEFAULT_SHEET_URL = (
     "https://docs.google.com/spreadsheets/d/19RvAsEFg-0FiRjJmAt77IT07utYYxpzlpHrpwOTHpQ8/edit?usp=sharing"
 )
 
-app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+app = Dash(__name__, external_stylesheets=[dbc.themes.LUX])
 app.title = "Inventory Search"
 
 app.layout = html.Div(
@@ -105,6 +106,7 @@ app.layout = html.Div(
         ], id="edit-modal", is_open=False),
     ],
     style={"padding": "2rem"},
+    className='app-container'
 )
 
 
@@ -130,7 +132,7 @@ def json_to_df(data: str | None) -> pd.DataFrame | None:
 )
 def load_sheet(n_clicks: int, url: str):  # noqa: D401  pylint: disable=unused-argument
     """Load the sheet, validate booleans, and populate column dropdown."""
-    df = load_data(path=None, url=url)
+    df = get_df(url)
 
     # Validate boolean columns (collect warnings instead of printing)
     warnings: list[str] = []
@@ -293,7 +295,7 @@ def _save_row(n_clicks, selected_rows, url, name, qr, picture, shelfpic, green, 
     if n_clicks == 0 or not selected_rows:
         raise dash.exceptions.PreventUpdate
     # Determine the actual sheet row corresponding to the selected row in the (possibly) filtered table
-    df_all = load_data(None, url)
+    df_all = get_df(url)
     if query:
         current_view = search(df_all, query, field=field)
     else:
@@ -314,13 +316,8 @@ def _save_row(n_clicks, selected_rows, url, name, qr, picture, shelfpic, green, 
 
     # write single row to sheet
     try:
-        m = re.search(r"/d/([\w-]+)/", url)
-        if m:
-            sheet_id = m.group(1)
-            gc = gspread.service_account()
-            ws = gc.open_by_key(sheet_id).sheet1
-            row_vals = [str(v) if hasattr(v, 'dtype') or isinstance(v, (int, float)) else v for v in df.iloc[row_idx].tolist()]
-            ws.update(range_name=f"A{row_idx + 2}", values=[row_vals])
+        row_vals = [str(v) if hasattr(v, 'dtype') or isinstance(v, (int, float)) else v for v in df.iloc[row_idx].tolist()]
+        update_row(url, row_idx, row_vals)
     except Exception as exc:  # noqa: BLE001
         print("[Warning] Failed to write row:", exc)
 
