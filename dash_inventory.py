@@ -28,7 +28,6 @@ DEFAULT_SHEET_URL = (
 )
 
 external_stylesheets = [
-    dbc.themes.LUX,
     "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css",  # Font Awesome icons
 ]
 
@@ -40,7 +39,7 @@ INTRO_INDEX_STRING = """<!DOCTYPE html>
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link rel=\"stylesheet\" href=\"https://unpkg.com/intro.js/minified/introjs.min.css\">
+        <link id=\"theme-css\" rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/lux/bootstrap.min.css\">\n        <link rel=\"stylesheet\" href=\"https://unpkg.com/intro.js/minified/introjs.min.css\">
         <script src=\"https://unpkg.com/intro.js/minified/intro.min.js\"></script>
     </head>
     <body>
@@ -68,6 +67,7 @@ app.layout = html.Div([
                 dbc.NavItem(dbc.NavLink("Reports", href="#", id="tab-reports")),
             ], className="me-auto", pills=True, id="nav-links"),
             dbc.Input(type="search", placeholder="Global search…", id="global-search", style={"maxWidth": "250px"}),
+            dbc.Switch(id="theme-switch", label="Dark mode", className="ms-3"),
         ]),
         color="light",
         sticky="top",
@@ -126,6 +126,7 @@ html.Div(id="tour-dummy", style={"display": "none"}),
             style={"marginBottom": "1rem"},
         ),
         dcc.Store(id="data-store"),
+dcc.Store(id="table-settings", storage_type="local"),
 
         html.Div(id="warning-div", style={"color": "red", "whiteSpace": "pre-wrap"}),
         html.Hr(),
@@ -142,12 +143,13 @@ html.Div(id="tour-dummy", style={"display": "none"}),
         ], style={"display": "flex", "gap": "0.5rem", "flexWrap": "wrap", "marginBottom": "1rem"}),
         html.Div(id="upload-status", style={"color": "green", "whiteSpace": "pre-wrap"}),
         dash_table.DataTable(
-            id="result-table",
+             id="result-table",
+             style_header={"backgroundColor": "#343a40", "color": "#ffffff", "fontWeight": "bold"},
             page_size=20,
             row_selectable="single",
             selected_rows=[],
             style_table={"overflowX": "auto", "maxHeight": "60vh", "overflowY": "auto"},
-            style_cell={"textAlign": "left"},
+            style_cell={"textAlign": "left", "color": "#000"},
         ),
         html.Button(html.I(className="fa-solid fa-pen"), id="edit-btn", n_clicks=0, disabled=True, className="btn btn-secondary mt-2"),
 html.Button(html.I(className="fa-solid fa-trash"), id="delete-btn", n_clicks=0, disabled=True, className="btn btn-danger mt-2 ms-2"),
@@ -351,6 +353,68 @@ def _switch_tabs(n1, n2, n3, n4):
             {"label": label, "active": True},
         ]
         return {"display": "none"}, {}, breadcrumbs
+
+# ---------- Table settings persistence ----------
+@app.callback(
+    Output("table-settings", "data", allow_duplicate=True),
+    Input("result-table", "filter_query"),
+    Input("result-table", "sort_by"),
+    Input("result-table", "page_current"),
+    Input("result-table", "page_size"),
+    prevent_initial_call=True,
+)
+def _save_table_settings(filter_q, sort_by, page_cur, page_size):
+    return {
+        "filter_query": filter_q,
+        "sort_by": sort_by,
+        "page_current": page_cur,
+        "page_size": page_size,
+    }
+
+app.clientside_callback(
+    """
+    function(settings){
+        if(!settings){return ['', [], 0, 20];}
+        return [settings.filter_query||'', settings.sort_by||[], settings.page_current||0, settings.page_size||20];
+    }
+    """,
+    Output('result-table','filter_query', allow_duplicate=True),
+    Output('result-table','sort_by', allow_duplicate=True),
+    Output('result-table','page_current', allow_duplicate=True),
+    Output('result-table','page_size', allow_duplicate=True),
+    Input('table-settings','data'),
+    prevent_initial_call=True,
+)
+
+# ---------- Theme toggle ----------
+app.clientside_callback(
+    """
+    function(dark){
+        const link=document.getElementById('theme-css');
+        if(!link){return ''}
+        const hrefDark='https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/darkly/bootstrap.min.css';
+        const hrefLight='https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/lux/bootstrap.min.css';
+        if(dark){link.href=hrefDark; localStorage.setItem('themeDark','1');}
+        else {link.href=hrefLight; localStorage.removeItem('themeDark');}
+        return '';
+    }
+    """,
+    Output('tour-dummy','children', allow_duplicate=True),
+    Input('theme-switch','value'),
+    prevent_initial_call=True,
+)
+
+app.clientside_callback(
+    """
+    function(n){
+        const dark=localStorage.getItem('themeDark')==='1';
+        return dark;
+    }
+    """,
+    Output('theme-switch','value'),
+    Input('url-input','value'),
+    prevent_initial_call=False,
+)
 
 # (global search callback would go here later)
 
