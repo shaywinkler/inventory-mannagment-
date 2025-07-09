@@ -39,7 +39,11 @@ INTRO_INDEX_STRING = """<!DOCTYPE html>
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link id=\"theme-css\" rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/lux/bootstrap.min.css\">\n        <link rel=\"stylesheet\" href=\"https://unpkg.com/intro.js/minified/introjs.min.css\">
+        <link id=\"theme-css\" rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/lux/bootstrap.min.css\">\n        <link rel=\"stylesheet\" href=\"https://unpkg.com/intro.js/minified/introjs.min.css\">\n        <style>\n          body.dark-mode .introjs-tooltip { background:#343a40 !important; color:#fff !important;}\n          body.dark-mode .introjs-tooltiptext { color:#fff !important;}\n          body.dark-mode .introjs-helperLayer { background:rgba(0,0,0,0.6) !important;}\n          body.magenta-mode {background-color:#5f3dc4; color:#000;}
+          body.magenta-mode .btn-primary, body.magenta-mode .bg-primary {background-color:#d633ff !important; border-color:#d633ff !important;}
+          body.magenta-mode .nav-link.active {background-color:#d633ff !important;}
+          body.magenta-mode .introjs-tooltip {background:#7048e8 !important; color:#000 !important;}
+        </style>
         <script src=\"https://unpkg.com/intro.js/minified/intro.min.js\"></script>
     </head>
     <body>
@@ -67,7 +71,19 @@ app.layout = html.Div([
                 dbc.NavItem(dbc.NavLink("Reports", href="#", id="tab-reports")),
             ], className="me-auto", pills=True, id="nav-links"),
             dbc.Input(type="search", placeholder="Global search…", id="global-search", style={"maxWidth": "250px"}),
-            dbc.Switch(id="theme-switch", label="Dark mode", className="ms-3"),
+            dcc.Dropdown(
+                id="theme-dropdown",
+                options=[
+                    {"label": "Light", "value": "lux"},
+                    {"label": "Dark", "value": "darkly"},
+                    {"label": "Flatly", "value": "flatly"},
+                    {"label": "Cyborg", "value": "cyborg"},
+                    {"label": "Magenta", "value": "magenta"},
+                ],
+                value="lux",
+                clearable=False,
+                style={"width": "120px", "marginLeft": "12px"},
+            ),
         ]),
         color="light",
         sticky="top",
@@ -79,6 +95,7 @@ app.layout = html.Div([
     # Main content wrappers
     html.Div(id="dashboard-section", children=[
         html.H2("Inventory Search Dashboard"),
+
         html.Button(
             html.Span([
                 html.I(className="fa-solid fa-book fa-stack-2x"),
@@ -98,7 +115,21 @@ app.layout = html.Div([
         ),
         html.Div(id="tour-dummy", style={"display": "none"}),
 
-html.Div(id="tour-dummy", style={"display": "none"}),
+# ----- Undo toast and timer -----
+dbc.Toast(
+    [
+        html.Span(id="toast-msg"),
+        dbc.Button("Undo", id="undo-btn", color="link", size="sm", className="ms-2"),
+    ],
+    id="undo-toast",
+    header="Action performed",
+    is_open=False,
+    dismissable=True,
+    icon="warning",
+    style={"position": "fixed", "bottom": 20, "right": 20, "minWidth": "250px", "zIndex": 2000},
+),
+# interval ticks every 1s; separate callback closes toast after 50s
+dcc.Interval(id="undo-interval", interval=1000, disabled=True),
         html.Div(
             [
                 dcc.Input(
@@ -127,6 +158,10 @@ html.Div(id="tour-dummy", style={"display": "none"}),
         ),
         dcc.Store(id="data-store"),
 dcc.Store(id="table-settings", storage_type="local"),
+# Audit log of last 10 edits
+dcc.Store(id="audit-log", data=[], storage_type="session"),
+# Store to keep last action details for undo
+dcc.Store(id="last-action", storage_type="session"),
 
         html.Div(id="warning-div", style={"color": "red", "whiteSpace": "pre-wrap"}),
         html.Hr(),
@@ -143,7 +178,8 @@ dcc.Store(id="table-settings", storage_type="local"),
         ], style={"display": "flex", "gap": "0.5rem", "flexWrap": "wrap", "marginBottom": "1rem"}),
         html.Div(id="upload-status", style={"color": "green", "whiteSpace": "pre-wrap"}),
         dash_table.DataTable(
-             id="result-table",
+              id="result-table",
+              editable=True,
              style_header={"backgroundColor": "#343a40", "color": "#ffffff", "fontWeight": "bold"},
             page_size=20,
             row_selectable="single",
@@ -158,6 +194,25 @@ html.Button(html.I(className="fa-solid fa-rotate-right"), id="restock-btn", n_cl
 dbc.Tooltip("Edit selected row", target="edit-btn", placement="top"),
 dbc.Tooltip("Delete row", target="delete-btn", placement="top"),
 dbc.Tooltip("Restock item", target="restock-btn", placement="top"),
+
+        # Audit trail toggle and panel
+        dbc.Button("Recent Edits", id="audit-toggle", color="secondary", className="mt-3"),
+        dbc.Collapse(
+            dbc.ListGroup(id="audit-list"),
+            id="audit-collapse",
+            is_open=False,
+            className="mt-2"
+        ),
+
+        # Detail offcanvas
+        dbc.Offcanvas(
+            id="detail-drawer",
+            title="Item Details",
+            is_open=False,
+            placement="end",
+            style={"width": "350px"},
+            children=html.Div(id="drawer-body", className="p-2")
+        ),
         # Edit modal (hidden by default)
         dbc.Modal([
             dbc.ModalHeader(dbc.ModalTitle("Edit Row"), close_button=False),
@@ -250,6 +305,9 @@ def do_search(query: str, field: str | None, data: str):  # noqa: D401
     return result[cols].to_dict("records"), [{"name": c, "id": c} for c in cols]
 
 
+# (KPI cards removed at user request)
+
+
 # ---------------- Upload callback -----------------
 try:
     import gspread  # noqa: WPS433
@@ -317,6 +375,73 @@ def upload_row(n_clicks: int, url: str, name: str, qr: str, picture: str, shelfp
 
 
 
+# ---------- Audit panel toggle ----------
+@app.callback(Output("audit-collapse","is_open"), Input("audit-toggle","n_clicks"), State("audit-collapse","is_open"), prevent_initial_call=True)
+def _toggle_audit(n, open_):
+    return not open_ if n else open_
+
+# ---------- Update audit list ----------
+@app.callback(Output("audit-list","children"), Input("audit-log","data"))
+def _render_audit(log):
+    if not log:
+        return [dbc.ListGroupItem("No edits yet.")]
+    items=[]
+    for i, entry in enumerate(reversed(log)):
+        txt=f"[{entry['time']}] Row {entry['row']+1} – {entry['column']}: {entry['old']} → {entry['new']}"
+        items.append(
+            dbc.ListGroupItem([
+                txt,
+                dbc.Button("Revert", id={"type":"revert","index":i}, size="sm", color="link", className="float-end")
+            ], className="py-1")
+        )
+    return items
+
+# ---------- Revert edit ----------
+@app.callback(Output("audit-log","data",allow_duplicate=True), Input({"type":"revert","index":ALL},"n_clicks"), State("audit-log","data"), State("url-input","value"), prevent_initial_call=True)
+def _do_revert(clicks, log, url):
+    ctx=dash.callback_context
+    if not ctx.triggered or not log:
+        raise dash.exceptions.PreventUpdate
+    tid=ctx.triggered[0]["prop_id"].split(".")[0]
+    import json as _j
+    idx=_j.loads(tid)["index"]
+    entry=log[-(idx+1)]
+    try:
+        df=get_df(url)
+        df.at[entry['row'], entry['column']]=entry['old']
+        update_row(url, entry['row'], df.iloc[entry['row']].tolist())
+    except Exception as exc:
+        print("[Warning] revert failed",exc)
+    log.pop(-(idx+1))
+    return log
+
+# ---------- Row select opens detail drawer ----------
+@app.callback(
+    Output("detail-drawer", "is_open"),
+    Output("drawer-body", "children"),
+    Input("result-table", "selected_rows"),
+    State("data-store", "data"),
+    prevent_initial_call=False,
+)
+def _open_drawer(selected_rows, data_json):
+    if not selected_rows:
+        return False, dash.no_update
+    df = json_to_df(data_json)
+    if df is None or selected_rows[0] >= len(df):
+        return False, dash.no_update
+    row = df.iloc[selected_rows[0]]
+    # Determine image source: if 'picture' column contains URL else placeholder
+    img_src = None
+    if isinstance(row.get("picture"), str) and row.get("picture").startswith("http"):
+        img_src = row.get("picture")
+    body = []
+    if img_src:
+        body.append(html.Img(src=img_src, style={"maxWidth": "100%", "marginBottom": "1rem"}))
+    for col in df.columns:
+        val = row[col]
+        body.append(html.P([html.Strong(f"{col}: "), str(val)]))
+    return True, body
+
 # ---------- Enable/disable Edit button ----------
 @app.callback(
     Output("edit-btn", "disabled"),
@@ -354,6 +479,45 @@ def _switch_tabs(n1, n2, n3, n4):
         ]
         return {"display": "none"}, {}, breadcrumbs
 
+# ---------- Undo toast logic ----------
+@app.callback(
+    Output("undo-toast", "is_open"),
+    Output("undo-interval", "disabled"),
+    Output("toast-msg", "children"),
+    Output("last-action", "data", allow_duplicate=True),
+    Input("delete-btn", "n_clicks"),
+    Input("restock-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def _show_toast(del_clicks, restock_clicks):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        raise dash.exceptions.PreventUpdate
+    btn_id = ctx.triggered[0]["prop_id"].split(".")[0]
+    action = "Deleted" if btn_id == "delete-btn" else "Restocked"
+    return True, False, f"{action} item – you have 50 s to undo.", {"action": action}
+
+@app.callback(
+    Output("undo-toast", "is_open", allow_duplicate=True),
+    Output("undo-interval", "disabled", allow_duplicate=True),
+    Input("undo-interval", "n_intervals"),
+    Input("undo-btn", "n_clicks"),
+    State("undo-toast", "is_open"),
+    prevent_initial_call=True,
+)
+def _handle_undo(ticks, undo_clicks, is_open):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        raise dash.exceptions.PreventUpdate
+    trigger = ctx.triggered[0]["prop_id"].split(".")[0]
+    if trigger == "undo-btn":
+        # TODO: implement actual undo logic (reload data or revert backend)
+        return False, True
+    # interval tick: close after 50s (ticks start at 0)
+    if ticks >= 50 and is_open:
+        return False, True
+    raise dash.exceptions.PreventUpdate
+
 # ---------- Table settings persistence ----------
 @app.callback(
     Output("table-settings", "data", allow_duplicate=True),
@@ -389,29 +553,33 @@ app.clientside_callback(
 # ---------- Theme toggle ----------
 app.clientside_callback(
     """
-    function(dark){
+    function(theme){
         const link=document.getElementById('theme-css');
         if(!link){return ''}
-        const hrefDark='https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/darkly/bootstrap.min.css';
-        const hrefLight='https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/lux/bootstrap.min.css';
-        if(dark){link.href=hrefDark; localStorage.setItem('themeDark','1');}
-        else {link.href=hrefLight; localStorage.removeItem('themeDark');}
+        const base='https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/';
+        const map={lux:'lux', darkly:'darkly', flatly:'flatly', cyborg:'cyborg', magenta:'darkly'};
+        const css=map[theme]||'lux';
+        link.href=`${base}${css}/bootstrap.min.css`;
+        document.body.classList.remove('dark-mode','magenta-mode');
+        if(theme==='darkly' || theme==='cyborg'){document.body.classList.add('dark-mode');}
+        if(theme==='magenta'){document.body.classList.add('magenta-mode');}
+        localStorage.setItem('themeName', theme);
         return '';
     }
     """,
     Output('tour-dummy','children', allow_duplicate=True),
-    Input('theme-switch','value'),
+    Input('theme-dropdown','value'),
     prevent_initial_call=True,
 )
 
 app.clientside_callback(
     """
     function(n){
-        const dark=localStorage.getItem('themeDark')==='1';
-        return dark;
+        const theme=localStorage.getItem('themeName')||'lux';
+        return theme;
     }
     """,
-    Output('theme-switch','value'),
+    Output('theme-dropdown','value'),
     Input('url-input','value'),
     prevent_initial_call=False,
 )
@@ -495,6 +663,38 @@ def _open_modal(n_edit, n_cancel, selected_rows, data_json):
         return False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
     row = df.iloc[selected_rows[0]]
     return True, row.get("name"), row.get("qr code"), row.get("picture"), row.get("picture by shelf"), row.get("is it green?"), row.get("notes"), row.get("VISIBLE/ NOT")
+
+# ---------- Inline cell edit save ----------
+@app.callback(
+    Output("result-table", "data", allow_duplicate=True),
+    Input("result-table", "data_timestamp"),
+    State("result-table", "data"),
+    State("result-table", "data_previous"),
+    State("url-input", "value"),
+    prevent_initial_call=True,
+)
+def _inline_save(ts, new_data, old_data, url):
+    if ts is None or old_data is None:
+        raise dash.exceptions.PreventUpdate
+    # find first difference
+    for idx, (new_row, old_row) in enumerate(zip(new_data, old_data)):
+        if new_row != old_row:
+            # validation for boolean columns (Yes/No)
+            for col in ["picture", "picture by shelf", "is it green?", "VISIBLE/ NOT"]:
+                if col in new_row and new_row[col] not in ("Yes", "No", "yes", "no"):
+                    # revert invalid edit
+                    new_row[col] = old_row[col]
+                    return new_data
+            # update backend sheet
+            try:
+                df_all = get_df(url)
+                row_idx = idx  # assuming displayed table includes all rows and not filtered
+                df_all.loc[row_idx, new_row.keys()] = list(new_row.values())
+                update_row(url, row_idx, df_all.loc[row_idx].tolist())
+            except Exception as exc:  # noqa: BLE001
+                print("[Warning] Failed to write row:", exc)
+            break
+    return new_data
 
 # ---------- Save edits back to sheet ----------
 @app.callback(
