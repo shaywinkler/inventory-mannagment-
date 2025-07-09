@@ -31,12 +31,74 @@ external_stylesheets = [
     dbc.themes.LUX,
     "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css",  # Font Awesome icons
 ]
+
+# Custom HTML to include Intro.js assets
+INTRO_INDEX_STRING = """<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        {%favicon%}
+        {%css%}
+        <link rel=\"stylesheet\" href=\"https://unpkg.com/intro.js/minified/introjs.min.css\">
+        <script src=\"https://unpkg.com/intro.js/minified/intro.min.js\"></script>
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+    </body>
+</html>"""
 app = Dash(__name__, external_stylesheets=external_stylesheets)
+app.index_string = INTRO_INDEX_STRING
 app.title = "Inventory Search"
 
-app.layout = html.Div(
-    [
+app.layout = html.Div([
+    # ---------- Top navigation ----------
+    dbc.Navbar(
+        dbc.Container([
+            dbc.NavbarBrand("Inventory Dashboard", className="fw-bold"),
+            dbc.Nav([
+                dbc.NavItem(dbc.NavLink("Dashboard", href="#", id="tab-dashboard")),
+                dbc.NavItem(dbc.NavLink("Products", href="#", id="tab-products")),
+                dbc.NavItem(dbc.NavLink("Orders", href="#", id="tab-orders")),
+                dbc.NavItem(dbc.NavLink("Reports", href="#", id="tab-reports")),
+            ], className="me-auto", pills=True, id="nav-links"),
+            dbc.Input(type="search", placeholder="Global search…", id="global-search", style={"maxWidth": "250px"}),
+        ]),
+        color="light",
+        sticky="top",
+        className="shadow-sm",
+    ),
+
+    dbc.Breadcrumb(id="breadcrumbs", items=[{"label": "Dashboard", "active": True}], className="mt-2 ms-3"),
+
+    # Main content wrappers
+    html.Div(id="dashboard-section", children=[
         html.H2("Inventory Search Dashboard"),
+        html.Button(
+            html.Span([
+                html.I(className="fa-solid fa-book fa-stack-2x"),
+                html.I(className="fa-solid fa-circle-info fa-stack-1x fa-inverse")
+            ], className="fa-stack fa-2x me-1"),
+            id="tour-btn",
+            title="Start tour",
+            className="btn btn-outline-primary ms-2",
+        ),
+        dbc.Tooltip("Start guided tour", target="tour-btn", placement="bottom"),
+        html.A(
+            html.I(className="fa-solid fa-circle-question fa-lg"),
+            id="help-link",
+            href="https://example.com/faq",  # replace with real FAQ/support URL
+            target="_blank",
+            className="position-absolute top-0 end-0 m-3 text-secondary",
+        ),
+        html.Div(id="tour-dummy", style={"display": "none"}),
+
+html.Div(id="tour-dummy", style={"display": "none"}),
         html.Div(
             [
                 dcc.Input(
@@ -64,6 +126,7 @@ app.layout = html.Div(
             style={"marginBottom": "1rem"},
         ),
         dcc.Store(id="data-store"),
+
         html.Div(id="warning-div", style={"color": "red", "whiteSpace": "pre-wrap"}),
         html.Hr(),
         html.H4("Add New Item"),
@@ -117,7 +180,14 @@ dbc.Tooltip("Restock item", target="restock-btn", placement="top"),
     ],
     style={"padding": "2rem"},
     className='app-container'
-)
+ ),
+ # Placeholder content for other tabs
+ html.Div(
+     id="placeholder-section",
+     style={"display": "none"},
+     children=html.Div("Content coming soon…", className="p-4"),
+ ),
+])
 
 
 def df_to_json(df: pd.DataFrame) -> str:
@@ -256,6 +326,85 @@ def _toggle_edit_btn(selected_rows):
     # Disable action buttons when nothing is selected
     disabled = not bool(selected_rows)
     return disabled, disabled, disabled
+
+# ---------- Navigation callbacks ----------
+@app.callback(
+    Output("dashboard-section", "style"),
+    Output("placeholder-section", "style"),
+    Output("breadcrumbs", "items"),
+    [Input("tab-dashboard", "n_clicks"), Input("tab-products", "n_clicks"), Input("tab-orders", "n_clicks"), Input("tab-reports", "n_clicks")],
+    prevent_initial_call=False,
+)
+def _switch_tabs(n1, n2, n3, n4):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        tab = "dashboard"
+    else:
+        tab = ctx.triggered[0]["prop_id"].split(".")[0].replace("tab-", "")
+    if tab == "dashboard":
+        breadcrumbs = [{"label": "Dashboard", "active": True}]
+        return {}, {"display": "none"}, breadcrumbs
+    else:
+        label = tab.capitalize()
+        breadcrumbs = [
+            {"label": "Dashboard", "active": False},
+            {"label": label, "active": True},
+        ]
+        return {"display": "none"}, {}, breadcrumbs
+
+# (global search callback would go here later)
+
+# ---------- Clientside tour launcher (first load) ----------
+# ---------- Manual Start Tour button ----------
+app.clientside_callback(
+    """
+    function(n) {
+        if (!n) {return '';}
+        if (typeof introJs === 'undefined') {return '';}
+        introJs().setOptions({
+            steps: [
+                {element: '#url-input',  intro: 'Paste your Google Sheets link here.', position: 'bottom'},
+                {element: '#search-btn', intro: 'Click to search (or press Enter) to find items.', position: 'right'},
+                {element: '#result-table', intro: 'Results appear here. Select a row to enable action icons.', position: 'top'},
+                {element: '#edit-btn', intro: 'Use these icons to edit, delete, or restock the item.', position: 'left'},
+                {element: '#upload-btn', intro: 'Add new items quickly using this form.', position: 'bottom'}
+            ],
+            nextLabel: 'Next', prevLabel: 'Back', doneLabel: 'Finish'
+        }).start();
+        return '';
+    }
+    """,
+    Output('tour-dummy', 'children', allow_duplicate=True),
+    Input('tour-btn','n_clicks'),
+    prevent_initial_call=True,
+)
+
+# ---------- Clientside tour launcher on first load ----------
+app.clientside_callback(
+    """
+    function(value) {
+        if (typeof introJs === 'undefined') {return ''}
+        if (!localStorage.getItem('tourSeen')) {
+            introJs().setOptions({
+                steps: [
+                    {element: '#url-input',  intro: 'Paste your Google Sheets link here.', position: 'bottom'},
+                    {element: '#search-btn', intro: 'Click to search (or press Enter) to find items.', position: 'right'},
+                    {element: '#result-table', intro: 'Results appear here. Select a row to enable action icons.', position: 'top'},
+                    {element: '#edit-btn', intro: 'Use these icons to edit, delete, or restock the item.', position: 'left'},
+                    {element: '#upload-btn', intro: 'Add new items quickly using this form.', position: 'bottom'}
+                ],
+                nextLabel: 'Next', prevLabel: 'Back', doneLabel: 'Finish'
+            }).oncomplete(function(){localStorage.setItem('tourSeen','1')})
+              .onexit(function(){localStorage.setItem('tourSeen','1')})
+              .start();
+        }
+        return '';
+    }
+    """,
+    Output('tour-dummy', 'children', allow_duplicate=True),
+    Input('url-input', 'value'),
+    prevent_initial_call=True,
+)
 
 # ---------- Open edit modal and populate fields ----------
 @app.callback(
