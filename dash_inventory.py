@@ -183,7 +183,7 @@ dcc.Store(id="last-action", storage_type="session"),
               editable=True,
              style_header={"backgroundColor": "#343a40", "color": "#ffffff", "fontWeight": "bold"},
             page_size=20,
-            row_selectable="single",
+            row_selectable="multi",  # allow multi-row selection for bulk actions
             selected_rows=[],
             style_table={"overflowX": "auto", "maxHeight": "60vh", "overflowY": "auto"},
             style_cell={"textAlign": "left", "color": "#000"},
@@ -195,6 +195,18 @@ html.Button(html.I(className="fa-solid fa-rotate-right"), id="restock-btn", n_cl
 dbc.Tooltip("Edit selected row", target="edit-btn", placement="top"),
 dbc.Tooltip("Delete row", target="delete-btn", placement="top"),
 dbc.Tooltip("Restock item", target="restock-btn", placement="top"),
+
+        # ---- Bulk action confirmation modal ----
+        dbc.Modal([
+            dbc.ModalHeader(dbc.ModalTitle("Confirm Bulk Action")),
+            dbc.ModalBody(id="confirm-modal-body"),
+            dbc.ModalFooter([
+                dbc.Button("Cancel", id="confirm-cancel", color="secondary", className="me-2"),
+                dbc.Button("OK", id="confirm-ok", color="primary"),
+            ]),
+        ], id="confirm-modal", is_open=False),
+        # Store pending action type and rows
+        dcc.Store(id="pending-action", storage_type="session"),
 
         # Audit trail toggle and panel
         dbc.Button("Recent Edits", id="audit-toggle", color="secondary", className="mt-3"),
@@ -507,6 +519,82 @@ def _show_toast(del_clicks, restock_clicks):
     prevent_initial_call=True,
 )
 def _handle_undo(ticks, undo_clicks, is_open):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        raise dash.exceptions.PreventUpdate
+    trigger = ctx.triggered[0]["prop_id"].split(".")[0]
+    if trigger == "undo-btn":
+        # TODO: implement actual undo logic (reload data or revert backend)
+        return False, True
+    # interval tick: close after 50s (ticks start at 0)
+    if ticks >= 50 and is_open:
+        return False, True
+    raise dash.exceptions.PreventUpdate
+
+# ---------- Bulk action confirmation ----------
+@app.callback(
+    Output("confirm-modal", "is_open"),
+    Output("confirm-modal-body", "children"),
+    Output("pending-action", "data"),
+    Input("delete-btn", "n_clicks"),
+    Input("restock-btn", "n_clicks"),
+    State("result-table", "selected_rows"),
+    State("result-table", "data"),
+    prevent_initial_call=True,
+)
+def _open_confirm(del_clicks, restock_clicks, selected_rows, table_data):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        raise dash.exceptions.PreventUpdate
+    btn_id = ctx.triggered[0]["prop_id"].split(".")[0]
+    if not selected_rows:
+        raise dash.exceptions.PreventUpdate
+    if len(selected_rows) == 1:
+        # let existing single-row callbacks handle it
+        raise dash.exceptions.PreventUpdate
+    action = "delete" if btn_id == "delete-btn" else "restock"
+    # create summary list of item names (truncate to first 10)
+    names = [table_data[i].get("name", f"Row {i+1}") for i in selected_rows]
+    display_names = ", ".join(names[:10])
+    if len(names) > 10:
+        display_names += f" … (+{len(names)-10} more)"
+    body = f"You are about to {action} {len(names)} items: {display_names}. Continue?"
+    return True, body, {"action": action, "rows": selected_rows}
+
+@app.callback(
+    Output("confirm-modal", "is_open", allow_duplicate=True),
+    Output("data-store", "data", allow_duplicate=True),
+    Output("result-table", "data", allow_duplicate=True),
+    Output("result-table", "selected_rows", allow_duplicate=True),
+    Input("confirm-ok", "n_clicks"),
+    Input("confirm-cancel", "n_clicks"),
+    State("pending-action", "data"),
+    State("data-store", "data"),
+    prevent_initial_call=True,
+)
+def _perform_bulk(ok_clicks, cancel_clicks, pending_action, data_json):
+    ctx = dash.callback_context
+    if not ctx.triggered or not pending_action:
+        raise dash.exceptions.PreventUpdate
+    trigger = ctx.triggered[0]["prop_id"].split(".")[0]
+    if trigger == "confirm-cancel":
+        return False, dash.no_update, dash.no_update, []
+
+    # ok clicked
+    import json as _json
+    df = json_to_df(data_json)
+    if df is None:
+        raise dash.exceptions.PreventUpdate
+    rows = pending_action.get("rows", [])
+    action = pending_action.get("action")
+    if action == "delete":
+        df = df.drop(index=rows)
+    elif action == "restock":
+        if "VISIBLE/ NOT" in df.columns:
+            df.loc[rows, "VISIBLE/ NOT"] = "Visible"
+    new_data_json = df_to_json(df)
+    table_data = df.to_dict("records")
+    return False, new_data_json, table_data, []
     ctx = dash.callback_context
     if not ctx.triggered:
         raise dash.exceptions.PreventUpdate
