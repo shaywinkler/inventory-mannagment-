@@ -39,7 +39,8 @@ INTRO_INDEX_STRING = """<!DOCTYPE html>
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link id=\"theme-css\" rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/lux/bootstrap.min.css\">\n        <link rel=\"stylesheet\" href=\"https://unpkg.com/intro.js/minified/introjs.min.css\">\n        <style>\n          body.dark-mode .introjs-tooltip { background:#343a40 !important; color:#fff !important;}\n          body.dark-mode .introjs-tooltiptext { color:#fff !important;}\n          body.dark-mode .introjs-helperLayer { background:rgba(0,0,0,0.6) !important;}\n          body.magenta-mode {background-color:#5f3dc4; color:#000;}
+        <link id=\"theme-css\" rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/lux/bootstrap.min.css\">\n        <link rel=\"stylesheet\" href=\"https://unpkg.com/intro.js/minified/introjs.min.css\">\n        <style>\n          body.dark-mode .introjs-tooltip { background:#343a40 !important; color:#fff !important;}\n          body.dark-mode .introjs-tooltiptext { color:#fff !important;}\n          body.dark-mode .introjs-helperLayer { background:rgba(0,0,0,0.6) !important;}\n          /* Soft purple-magenta gradient background */
+          body.magenta-mode {background: linear-gradient(135deg, #e0aaff 0%, #c77dff 50%, #7b2cbf 100%); color:#000;}
           body.magenta-mode .btn-primary, body.magenta-mode .bg-primary {background-color:#d633ff !important; border-color:#d633ff !important;}
           body.magenta-mode .nav-link.active {background-color:#d633ff !important;}
           body.magenta-mode .introjs-tooltip {background:#7048e8 !important; color:#000 !important;}
