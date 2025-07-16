@@ -43,14 +43,32 @@ def _sheet_from_url(url: str):
 # ---------------------------------------------------------------------------
 
 def get_df(url: str) -> pd.DataFrame:
-    """Download entire sheet into a DataFrame (via exported CSV)."""
-    # Derive CSV export link – this avoids the slower API call per cell
+    """Download entire sheet into a DataFrame.
+
+    Strategy:
+    1. Try fast unauthenticated CSV export (requires sheet to be public).
+    2. If that fails with an HTTPError (401/403) fall back to authenticated
+       gspread access using the service-account credentials.
+    """
+    orig_url = url  # keep the original edit link in case we need gspread
+
+    # --- Attempt CSV export first ---
     if "format=csv" not in url:
         m = re.search(r"/d/([\w-]+)/", url)
         if m:
             sheet_id = m.group(1)
             url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
-    return pd.read_csv(url)
+    try:
+        return pd.read_csv(url)
+    except Exception as exc:
+        # Common for private sheets -> fall back to API
+        try:
+            ws = _sheet_from_url(orig_url)
+            records = ws.get_all_records()
+            return pd.DataFrame(records)
+        except Exception:  # noqa: BLE001
+            # Re-raise original to keep message (likely 401/403)
+            raise exc
 
 
 def update_row(url: str, row_idx: int, row_values: Sequence[Any]) -> None:

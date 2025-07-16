@@ -432,27 +432,22 @@ def _do_revert(clicks, log, url):
 @app.callback(
     Output("detail-drawer", "is_open"),
     Output("drawer-body", "children"),
-    Input("result-table", "selected_rows"),
-    State("data-store", "data"),
-    prevent_initial_call=False,
+    Input("result-table", "derived_virtual_selected_rows"),
+    State("result-table", "derived_virtual_data"),
 )
-def _open_drawer(selected_rows, data_json):
-    if not selected_rows:
+def _open_drawer(dv_selected_rows, dv_data):
+    if not dv_selected_rows:
         return False, dash.no_update
-    df = json_to_df(data_json)
-    if df is None or selected_rows[0] >= len(df):
+    if not dv_data or dv_selected_rows[0] >= len(dv_data):
         return False, dash.no_update
-    row = df.iloc[selected_rows[0]]
-    # Determine image source: if 'picture' column contains URL else placeholder
-    img_src = None
-    if isinstance(row.get("picture"), str) and row.get("picture").startswith("http"):
-        img_src = row.get("picture")
+    row = dv_data[dv_selected_rows[0]]
+    # Determine image source
+    img_src = row.get("picture") if isinstance(row.get("picture"), str) and row.get("picture").startswith("http") else None
     body = []
     if img_src:
         body.append(html.Img(src=img_src, style={"maxWidth": "100%", "marginBottom": "1rem"}))
-    for col in df.columns:
-        val = row[col]
-        body.append(html.P([html.Strong(f"{col}: "), str(val)]))
+    for k, v in row.items():
+        body.append(html.P([html.Strong(f"{k}: "), str(v)]))
     return True, body
 
 # ---------- Enable/disable Edit button ----------
@@ -739,19 +734,20 @@ app.clientside_callback(
     Output("edit-visible", "value"),
     Input("edit-btn", "n_clicks"),
     Input("cancel-btn", "n_clicks"),
-    State("result-table", "selected_rows"),
-    State("data-store", "data"),
+    State("result-table", "derived_virtual_selected_rows"),
+    State("result-table", "derived_virtual_data"),
     prevent_initial_call=True,
 )
-def _open_modal(n_edit, n_cancel, selected_rows, data_json):
+def _open_modal(n_edit, n_cancel, dv_selected_rows, dv_data):
     # Close on cancel or no selection
-    if ctx.triggered_id == "cancel-btn" or not selected_rows:
+    if ctx.triggered_id == "cancel-btn" or not dv_selected_rows:
         return False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
-    df = json_to_df(data_json)
-    if df is None:
+    # Use row dict from derived_virtual_data (already reflects current sort/filter)
+    row_dict = dv_data[dv_selected_rows[0]] if dv_data and dv_selected_rows else None
+    if not row_dict:
         return False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
-    row = df.iloc[selected_rows[0]]
-    return True, row.get("name"), row.get("qr code"), row.get("picture"), row.get("picture by shelf"), row.get("is it green?"), row.get("notes"), row.get("VISIBLE/ NOT")
+    return True, row_dict.get("name"), row_dict.get("qr code"), row_dict.get("picture"), row_dict.get("picture by shelf"), row_dict.get("is it green?"), row_dict.get("notes"), row_dict.get("VISIBLE/ NOT")
+
 
 # ---------- Inline cell edit save ----------
 @app.callback(
