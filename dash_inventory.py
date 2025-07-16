@@ -85,6 +85,7 @@ app.layout = html.Div([
                 clearable=False,
                 style={"width": "120px", "marginLeft": "12px"},
             ),
+            html.Button(html.I(className="fa-solid fa-moon"), id="theme-toggle", n_clicks=0, className="btn btn-outline-secondary ms-2"),
         ]),
         color="light",
         sticky="top",
@@ -181,12 +182,12 @@ dcc.Store(id="last-action", storage_type="session"),
         dash_table.DataTable(
               id="result-table",
               editable=True,
-             style_header={"backgroundColor": "#343a40", "color": "#ffffff", "fontWeight": "bold"},
+             style_header={"backgroundColor": "#343a40", "color": "#ffffff", "fontWeight": "bold", "whiteSpace": "normal", "height": "auto", "textAlign": "center"},
             page_size=20,
             row_selectable="multi",  # allow multi-row selection for bulk actions
             selected_rows=[],
             style_table={"overflowX": "auto", "maxHeight": "60vh", "overflowY": "auto"},
-            style_cell={"textAlign": "left", "color": "#000"},
+            style_cell={"textAlign": "left", "color": "#000", "whiteSpace": "normal"},
         ),
         html.Button(html.I(className="fa-solid fa-pen"), id="edit-btn", n_clicks=0, disabled=True, className="btn btn-secondary mt-2"),
 html.Button(html.I(className="fa-solid fa-trash"), id="delete-btn", n_clicks=0, disabled=True, className="btn btn-danger mt-2 ms-2"),
@@ -663,9 +664,25 @@ app.clientside_callback(
         return theme;
     }
     """,
-    Output('theme-dropdown','value'),
+    Output('theme-dropdown','value', allow_duplicate=True),
     Input('url-input','value'),
-    prevent_initial_call=False,
+    prevent_initial_call=True,
+)
+
+# ---------- Moon icon theme toggle ----------
+app.clientside_callback(
+    """
+    function(n_clicks, current){
+        if(!n_clicks){ return window.dash_clientside.no_update; }
+        const next = (current==='lux') ? 'darkly' : 'lux';
+        localStorage.setItem('themeName', next);
+        return next;
+    }
+    """,
+    Output('theme-dropdown','value', allow_duplicate=True),
+    Input('theme-toggle','n_clicks'),
+    State('theme-dropdown','value'),
+    prevent_initial_call=True,
 )
 
 # (global search callback would go here later)
